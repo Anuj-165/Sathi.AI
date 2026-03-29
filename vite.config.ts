@@ -23,7 +23,7 @@ function sathiWasmPlugin(): Plugin {
       server.middlewares.use((req, res, next) => {
         const url = req.url || '';
 
-        // Handle requests for Sherpa WASM (covers /assets/sherpa-onnx.wasm and root)
+        // Handle any request for Sherpa-ONNX WASM (catches /assets/ or root)
         if (url.includes('sherpa-onnx.wasm')) {
           const filePath = path.join(onnxWasm, 'sherpa', 'sherpa-onnx.wasm');
           if (fs.existsSync(filePath)) {
@@ -53,38 +53,38 @@ function sathiWasmPlugin(): Plugin {
       
       if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
 
-      // Copy LlamaCpp Files to root AND assets folder
-      const llamacppFiles = [
-        'racommons-llamacpp.wasm', 'racommons-llamacpp.js',
-        'racommons-llamacpp-webgpu.wasm', 'racommons-llamacpp-webgpu.js'
-      ];
-
-      llamacppFiles.forEach(file => {
-        const srcPath = path.join(llamacppWasm, file);
-        if (fs.existsSync(srcPath)) {
-          fs.copyFileSync(srcPath, path.join(assetsDir, file));
-          fs.copyFileSync(srcPath, path.join(outDir, file));
-        }
-      });
-
-      // Copy Sherpa-ONNX tactical assets
+      // Handle Sherpa-ONNX Files (STT/TTS Engine)
       const sherpaDir = path.join(onnxWasm, 'sherpa');
-      
       if (fs.existsSync(sherpaDir)) {
         fs.readdirSync(sherpaDir).forEach(file => {
           const src = path.join(sherpaDir, file);
           if (fs.statSync(src).isFile()) {
-            // FIX: Copy directly to /assets/ (no subfolder) to satisfy the SDK's 404 path
+            // TARGET 1: /assets/sherpa-onnx.wasm (Fixes the 404 in your logs)
             fs.copyFileSync(src, path.join(assetsDir, file));
             
-            // Also copy to root as a secondary fallback
+            // TARGET 2: /sherpa-onnx.wasm (Fallback for different SDK pathing)
             if (file.endsWith('.wasm')) {
               fs.copyFileSync(src, path.join(outDir, file));
             }
           }
         });
-        console.log(`  ✓ Neural Engines Deployed to /assets/ and root.`);
+        console.log(`  ✓ Sherpa-ONNX Neural Engines deployed to /assets/ and root.`);
       }
+
+      // Handle LlamaCpp Files (LLM Engine)
+      const llamacppFiles = [
+        'racommons-llamacpp.wasm', 'racommons-llamacpp.js',
+        'racommons-llamacpp-webgpu.wasm', 'racommons-llamacpp-webgpu.js'
+      ];
+      llamacppFiles.forEach(file => {
+        const srcPath = path.join(llamacppWasm, file);
+        if (fs.existsSync(srcPath)) {
+          // Deploy to both locations for maximum compatibility
+          fs.copyFileSync(srcPath, path.join(assetsDir, file));
+          fs.copyFileSync(srcPath, path.join(outDir, file));
+          console.log(`  ✓ LLM Asset deployed: ${file}`);
+        }
+      });
     },
   };
 }
@@ -97,6 +97,7 @@ export default defineConfig({
   ],
   server: {
     headers: {
+      // Required for SharedArrayBuffer to function
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp', 
     },
@@ -112,6 +113,7 @@ export default defineConfig({
     format: 'es' 
   },
   optimizeDeps: {
+    // Keep these out of the bundle to ensure WASM discovery works
     exclude: ['@runanywhere/web-llamacpp', '@runanywhere/web-onnx'],
   },
   resolve: {
