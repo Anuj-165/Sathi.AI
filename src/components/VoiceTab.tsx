@@ -14,7 +14,7 @@ export function VoiceTab({ autoStart }: VoiceTabProps) {
   const ttsLoader = useModelLoader(ModelCategory.SpeechSynthesis, true);
   const vadLoader = useModelLoader(ModelCategory.Audio, true);
 
-  const [voiceState, setVoiceState] = useState<"idle" | "listening" | "processing" | "speaking">("idle");
+  const [voiceState, setVoiceState] = useState<"idle" | "initializing" | "listening" | "processing" | "speaking">("idle");
   const [transcript, setTranscript] = useState("");
   const [response, setResponse] = useState("");
   const [isSOS, setIsSOS] = useState(false);
@@ -64,18 +64,53 @@ export function VoiceTab({ autoStart }: VoiceTabProps) {
   }, []);
 
   const startListening = async () => {
-    if (voiceState !== "idle") return;
-    setTranscript(""); 
-    setResponse(""); 
-    setVoiceState("listening");
-    audioBufferRef.current = [];
-    try {
-      micRef.current = new AudioCapture({ sampleRate: 16000 });
-      await micRef.current.start((chunk) => audioBufferRef.current.push(chunk));
-    } catch (err) {
-      setVoiceState("idle");
+  if (voiceState !== "idle") return;
+
+  setTranscript(""); 
+  setResponse(""); 
+  setVoiceState("initializing"); 
+
+  audioBufferRef.current = [];
+
+  try {
+    const sdk = (window as any).sathiSDK;
+
+    if (sdk?.stt) {
+      const loadPromise = sdk.stt.ensureLoaded();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("STT_TIMEOUT")), 15000)
+      );
+      
+      await Promise.race([loadPromise, timeoutPromise]);
     }
-  };
+
+    setVoiceState("listening");
+
+    micRef.current = new AudioCapture({ sampleRate: 16000 });
+    
+    await micRef.current.start((chunk: Float32Array) => {
+      audioBufferRef.current.push(chunk);
+    });
+
+  } catch (err: any) {
+    setVoiceState("idle");
+    
+    const errorDiv = document.createElement("div");
+    errorDiv.className = "fixed top-10 left-1/2 -translate-x-1/2 z-[200] bg-red-950 border border-red-500 text-red-200 px-6 py-3 rounded-none font-mono text-xs uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(239,68,68,0.3)] animate-in fade-in zoom-in duration-300";
+    errorDiv.innerHTML = `
+      <div class="flex items-center gap-3">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+        <span>${err.message === "STT_TIMEOUT" ? "Neural Link Timeout: Engine Not Responding" : "Voice System Failure: Hardware Logic Error"}</span>
+      </div>
+    `;
+    document.body.appendChild(errorDiv);
+    setTimeout(() => {
+      errorDiv.style.opacity = "0";
+      errorDiv.style.transition = "opacity 0.5s ease";
+      setTimeout(() => errorDiv.remove(), 500);
+    }, 4000);
+  }
+};
 
   const stopListening = async () => {
     if (!micRef.current || !pipelineRef.current) return;

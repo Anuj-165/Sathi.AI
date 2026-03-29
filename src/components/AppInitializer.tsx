@@ -11,10 +11,23 @@ const ALL_CATEGORIES = [
   ModelCategory.Audio,
 ];
 
+declare global {
+  interface Window {
+    sathiSDK: any;
+  }
+}
+
 const GPU_SAFETY_CONFIG = {
   llamacpp: { n_batch: 512, n_ubatch: 128, n_ctx: 2048, flash_attn: true, offload_kqv: true },
   onnx: { executionProviders: ['webgpu'], preferredOutputLocation: 'gpu' },
   stt: { modelType: 'whisper', beamSize: 1 }
+};
+
+const requestPersistence = async () => {
+  if (navigator.storage && navigator.storage.persist) {
+    return await navigator.storage.persist();
+  }
+  return false;
 };
 
 export const AppInitializer: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -26,11 +39,29 @@ export const AppInitializer: React.FC<{ children: React.ReactNode }> = ({ childr
   useEffect(() => {
     if (!userStarted || initializing.current || sdkInitialized) return;
     initializing.current = true;
+    
     const boot = async () => {
       try {
-        await initSDK(GPU_SAFETY_CONFIG as any);
-        setSdkInitialized(true);
-      } finally { initializing.current = false; }
+        
+        const instance = await initSDK(GPU_SAFETY_CONFIG as any) as any;
+        
+        if (instance) {
+          
+          window.sathiSDK = instance;
+
+          if (instance.stt) {
+            console.log("[Sathi] Forcing STT WASM Warmup...");
+            instance.stt.ensureLoaded().catch((err: any) => 
+              console.error("[Sathi] STT Warmup Failed:", err)
+            );
+          }
+          setSdkInitialized(true);
+        }
+      } catch (err) {
+        console.error("[Sathi] SDK Boot Failure:", err);
+      } finally { 
+        initializing.current = false; 
+      }
     };
     boot();
   }, [userStarted, sdkInitialized]);
@@ -54,7 +85,6 @@ const UnifiedPreloader: React.FC<{ onLaunch: () => void, isLaunched: boolean, ch
   const [allDone, setAllDone] = useState(false);
   const queue = useRef([...ALL_CATEGORIES]);
 
-  
   useEffect(() => {
     if (activeCategory === ModelCategory.Language && state.progress >= 99) {
       setKernelReady(true);
@@ -63,8 +93,6 @@ const UnifiedPreloader: React.FC<{ onLaunch: () => void, isLaunched: boolean, ch
 
   const handleTaskComplete = useCallback(() => {
     const completed = queue.current.shift();
-    console.log(`[Sathi] Completed: ${completed}`);
-    
     if (completed === ModelCategory.Language) {
       setKernelReady(true);
     }
@@ -101,12 +129,11 @@ const UnifiedPreloader: React.FC<{ onLaunch: () => void, isLaunched: boolean, ch
         <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-10">
           <TacticalLoader category={ModelCategory.Language} />
           
-          
           {(kernelReady || state.progress >= 99) && (
             <div className="mt-12 space-y-6 flex flex-col items-center animate-in fade-in slide-in-from-bottom-4 duration-1000">
               <div className="flex items-center gap-2 px-4 py-2 border border-amber-500/20 bg-amber-500/5 rounded text-amber-500">
                 <AlertTriangle size={14} className="animate-pulse" />
-                <span className="text-[10px] font-mono uppercase tracking-widest">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-center">
                   Core Kernel Ready. Secondary modules syncing in background...
                 </span>
               </div>
@@ -164,21 +191,26 @@ const DownloadTask: React.FC<{ category: ModelCategory, onComplete: () => void }
       if (executionRef.current) return;
       executionRef.current = true;
       try {
+        await requestPersistence();
+
         if (isCached) {
           dispatch({ type: 'SET_PROGRESS', payload: { current: category, progress: 100, status: "complete" } });
           if (active) onComplete();
           return;
         }
+
         dispatch({ type: 'SET_PROGRESS', payload: { current: category, progress: 1, status: "downloading" } });
+        
         await navigator.locks.request("sathi-opfs-lock", { ifAvailable: true }, async (lock) => {
-          if (!lock) return true;
           return await preCache();
         });
+
         if (active) {
           dispatch({ type: 'SET_PROGRESS', payload: { current: category, progress: 100, status: "complete" } });
-          setTimeout(() => { if (active) onComplete(); }, 100);
+          setTimeout(() => { if (active) onComplete(); }, 150);
         }
       } catch (err) {
+        console.error(`[Sathi] Pre-cache failed for ${category}:`, err);
         if (active) onComplete();
       }
     };
