@@ -66,7 +66,18 @@ export const AppInitializer: React.FC<{ children: React.ReactNode }> = ({ childr
     </div>
   );
 
-  if (!sdkInitialized) return null; // Or your terminal loader
+  if (!sdkInitialized) return (
+    <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center text-white font-mono p-6">
+      <div className="w-full max-w-md space-y-4">
+        <div className="flex items-center gap-2 text-amber-500 text-[10px] font-black uppercase tracking-widest">
+           <Terminal size={14} className="animate-bounce" /> Initializing Hardware Link
+        </div>
+        <div className="h-[1px] w-full bg-zinc-800 relative overflow-hidden">
+          <div className="absolute top-0 h-full bg-amber-500 w-1/3 animate-[loading-shimmer_1.5s_infinite]" />
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <ModelProgressProvider>
@@ -75,68 +86,62 @@ export const AppInitializer: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 };
 
-
-
 const SequentialPreloader: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [activeCategory, setActiveCategory] = useState<ModelCategory | null>(ModelCategory.Language);
   const [kernelReady, setKernelReady] = useState(false);
+  const queue = useRef([...ALL_CATEGORIES]);
 
-  
-  const onKernelComplete = useCallback(() => {
-    console.log("[Sathi] Language Kernel Online. Injecting Dashboard...");
-    setKernelReady(true);
+  const handleTaskComplete = useCallback(() => {
+    const completed = queue.current.shift();
+    console.log(`[Sathi] Sync Complete: ${completed}`);
+
+    if (completed === ModelCategory.Language) {
+      setKernelReady(true);
+    }
+
+    if (queue.current.length > 0) {
+      setActiveCategory(queue.current[0]);
+    } else {
+      setActiveCategory(null);
+    }
   }, []);
 
   return (
     <>
+      
+      {activeCategory && (
+        <div className="hidden pointer-events-none" aria-hidden="true">
+          <DownloadTask 
+            key={activeCategory} 
+            category={activeCategory} 
+            onComplete={handleTaskComplete} 
+          />
+        </div>
+      )}
+
       {!kernelReady ? (
         <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center text-white p-10">
-          <TacticalLoader category={ModelCategory.Language} index={0} total={ALL_CATEGORIES.length} />
-          <DownloadTask category={ModelCategory.Language} onComplete={onKernelComplete} />
+          <TacticalLoader 
+            category={ModelCategory.Language} 
+            index={0} 
+            total={ALL_CATEGORIES.length} 
+          />
         </div>
       ) : (
-        <>
-          {children}
-          
-          <BackgroundSync remainingCategories={ALL_CATEGORIES.filter(c => c !== ModelCategory.Language)} />
-        </>
+        <>{children}</>
       )}
     </>
   );
 };
 
-
-const BackgroundSync: React.FC<{ remainingCategories: ModelCategory[] }> = ({ remainingCategories }) => {
-  const [index, setIndex] = useState(0);
-
-  const next = useCallback(() => {
-    setIndex(prev => prev + 1);
-  }, []);
-
-  if (index >= remainingCategories.length) return null;
-
-  return (
-    <div className="hidden pointer-events-none" aria-hidden="true">
-      <DownloadTask 
-        key={remainingCategories[index]} 
-        category={remainingCategories[index]} 
-        onComplete={next} 
-      />
-    </div>
-  );
-};
-
-
-
 const TacticalLoader: React.FC<{ category: ModelCategory, index: number, total: number }> = ({ category, index, total }) => {
   const { state } = useModelProgress();
-  const { isCached, activeDevice } = useModelLoader(category);
-
   return (
     <div className="w-full max-w-xl text-center space-y-10">
-      <div className="p-8 rounded-3xl border-2 border-amber-500 bg-amber-500/10">
-         <Cpu size={40} className="text-amber-500 mx-auto" />
+      <div className="p-5 rounded-3xl border-2 border-amber-500 bg-amber-500/10 inline-block mx-auto">
+         <Cpu size={40} className="text-amber-500" />
       </div>
-      <div className="space-y-4">
+      <div className="space-y-4 text-left">
         <div className="flex justify-between font-mono text-[10px] uppercase">
           <span className="text-zinc-500">Critical Kernel Module</span>
           <span className="text-amber-500 font-black">{Math.round(state.progress)}% Sync</span>
@@ -144,7 +149,7 @@ const TacticalLoader: React.FC<{ category: ModelCategory, index: number, total: 
         <div className="h-4 bg-zinc-900 border border-white/5 p-1">
           <div className="h-full bg-amber-500 transition-all duration-500" style={{ width: `${state.progress}%` }} />
         </div>
-        <h2 className="text-4xl font-black uppercase italic text-white">{category}</h2>
+        <h2 className="text-4xl font-black uppercase italic text-white text-center">{category}</h2>
       </div>
     </div>
   );
@@ -170,18 +175,18 @@ const DownloadTask: React.FC<{ category: ModelCategory, onComplete: () => void }
 
         dispatch({ type: 'SET_PROGRESS', payload: { current: category, progress: 1, status: "downloading" } });
         
-        // Use a much shorter lock request or bypass if possible to prevent sticking
         const success = await navigator.locks.request("sathi-opfs-lock", { ifAvailable: true }, async (lock) => {
-          if (!lock) return true; // Proceed anyway if lock is busy
+          if (!lock) return true; 
           return await preCache();
         });
 
         if (active) {
           dispatch({ type: 'SET_PROGRESS', payload: { current: category, progress: 100, status: "complete" } });
-          onComplete();
+          
+          setTimeout(() => { if (active) onComplete(); }, 50);
         }
       } catch (err) {
-        console.error(`[Sathi] Background Sync Error (${category}):`, err);
+        console.error(`[Sathi] Sync Error (${category}):`, err);
         if (active) onComplete();
       }
     };
