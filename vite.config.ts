@@ -52,23 +52,19 @@ export default defineConfig({
          * (like -kzdtwQuK) and the SDK fails to find them (404).
          */
         assetFileNames: (assetInfo) => {
-          const name = assetInfo.name || '';
-          if (
-            name.includes('sherpa') || 
-            name.includes('racommons') || 
-            name.includes('vlm-worker') || 
-            name.endsWith('.wasm')
-          ) {
-            return 'assets/[name].[ext]';
-          }
-          // Standard assets (images, fonts) get the hash for cache busting
-          return 'assets/[name]-[hash].[ext]';
-        },
-        chunkFileNames: 'assets/[name]-[hash].js',
-        entryFileNames: 'assets/[name]-[hash].js',
-      },
-    },
-  },
+  const name = assetInfo.name || '';
+  if (
+    name.includes('sherpa') || 
+    name.includes('racommons') || 
+    name.includes('vlm-worker') || 
+    name.endsWith('.wasm')
+  ) {
+    // REMOVE 'assets/' prefix so they stay at the root
+    return '[name].[ext]'; 
+  }
+  // Standard assets can stay in the assets folder
+  return 'assets/[name]-[hash].[ext]';
+},
 
   optimizeDeps: {
     // Prevents Vite from pre-bundling these, which can break WASM workers
