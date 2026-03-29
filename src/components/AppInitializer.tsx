@@ -48,13 +48,22 @@ export const AppInitializer: React.FC<{ children: React.ReactNode }> = ({ childr
 };
 
 const UnifiedPreloader: React.FC<{ onLaunch: () => void, isLaunched: boolean, children: React.ReactNode }> = ({ onLaunch, isLaunched, children }) => {
+  const { state } = useModelProgress();
   const [activeCategory, setActiveCategory] = useState<ModelCategory | null>(ModelCategory.Language);
   const [kernelReady, setKernelReady] = useState(false);
   const [allDone, setAllDone] = useState(false);
   const queue = useRef([...ALL_CATEGORIES]);
 
+  
+  useEffect(() => {
+    if (activeCategory === ModelCategory.Language && state.progress >= 99) {
+      setKernelReady(true);
+    }
+  }, [state.progress, activeCategory]);
+
   const handleTaskComplete = useCallback(() => {
     const completed = queue.current.shift();
+    console.log(`[Sathi] Completed: ${completed}`);
     
     if (completed === ModelCategory.Language) {
       setKernelReady(true);
@@ -70,43 +79,41 @@ const UnifiedPreloader: React.FC<{ onLaunch: () => void, isLaunched: boolean, ch
 
   return (
     <>
-      
       {activeCategory && (
         <div className="hidden pointer-events-none" aria-hidden="true">
           <DownloadTask key={activeCategory} category={activeCategory} onComplete={handleTaskComplete} />
         </div>
       )}
 
-      
       {allDone && isLaunched && (
-        <div className="fixed bottom-6 right-6 z-[100] bg-zinc-900 border border-amber-500/50 p-4 rounded-lg shadow-2xl animate-in slide-in-from-right-10 duration-500">
+        <div className="fixed bottom-6 right-6 z-[100] bg-zinc-900 border border-amber-500/50 p-4 rounded-lg shadow-2xl animate-in slide-in-from-right-10">
           <div className="flex items-center gap-3">
             <Bell className="text-amber-500" size={18} />
             <div>
-              <p className="text-white text-xs font-bold uppercase tracking-widest">Systems Fully Synchronized</p>
-              <p className="text-zinc-500 text-[10px] uppercase">Speech & Audio modules are now online.</p>
+              <p className="text-white text-xs font-bold uppercase tracking-widest">Systems Synchronized</p>
+              <p className="text-zinc-500 text-[10px] uppercase">All AI modules are now online.</p>
             </div>
           </div>
         </div>
       )}
 
-      
       {!isLaunched ? (
         <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-10">
           <TacticalLoader category={ModelCategory.Language} />
           
-          {kernelReady && (
-            <div className="mt-12 space-y-6 animate-in fade-in zoom-in duration-700 flex flex-col items-center">
+          
+          {(kernelReady || state.progress >= 99) && (
+            <div className="mt-12 space-y-6 flex flex-col items-center animate-in fade-in slide-in-from-bottom-4 duration-1000">
               <div className="flex items-center gap-2 px-4 py-2 border border-amber-500/20 bg-amber-500/5 rounded text-amber-500">
-                <AlertTriangle size={14} />
+                <AlertTriangle size={14} className="animate-pulse" />
                 <span className="text-[10px] font-mono uppercase tracking-widest">
-                  Partial Deploy: Chat & Maps Active. Other modules syncing...
+                  Core Kernel Ready. Secondary modules syncing in background...
                 </span>
               </div>
               
               <button 
                 onClick={onLaunch}
-                className="group relative px-10 py-4 bg-amber-500 text-black font-black uppercase tracking-[0.2em] text-xs transition-all hover:bg-white"
+                className="group relative px-12 py-5 bg-amber-500 text-black font-black uppercase tracking-[0.3em] text-xs transition-all hover:bg-white hover:scale-105 active:scale-95 shadow-[0_0_30px_rgba(245,158,11,0.2)]"
               >
                 Launch Tactical Interface
               </button>
@@ -120,34 +127,31 @@ const UnifiedPreloader: React.FC<{ onLaunch: () => void, isLaunched: boolean, ch
   );
 };
 
-
-
 const TacticalLoader: React.FC<{ category: ModelCategory }> = ({ category }) => {
   const { state } = useModelProgress();
-  const isFinished = state.progress >= 100;
+  const isFinished = state.progress >= 99;
 
   return (
     <div className="w-full max-w-xl text-center space-y-10">
-      <div className={`p-5 rounded-3xl border-2 transition-all duration-500 ${isFinished ? 'border-green-500 bg-green-500/10' : 'border-amber-500 bg-amber-500/10'} inline-block`}>
-         {isFinished ? <CheckCircle size={40} className="text-green-500" /> : <Cpu size={40} className="text-amber-500" />}
+      <div className={`p-5 rounded-3xl border-2 transition-all duration-700 ${isFinished ? 'border-green-500 bg-green-500/10 shadow-[0_0_20px_rgba(34,197,94,0.1)]' : 'border-amber-500 bg-amber-500/10 shadow-[0_0_20px_rgba(245,158,11,0.1)]'} inline-block`}>
+         {isFinished ? <CheckCircle size={40} className="text-green-500" /> : <Cpu size={40} className="text-amber-500 animate-pulse" />}
       </div>
       <div className="space-y-4">
         <div className="flex justify-between font-mono text-[10px] uppercase">
-          <span className="text-zinc-500">{isFinished ? 'Kernel Localized' : 'Syncing AI Kernel'}</span>
-          <span className="text-amber-500 font-black">{Math.round(state.progress)}%</span>
+          <span className="text-zinc-500">{isFinished ? 'Kernel Verified' : 'Synchronizing Kernel'}</span>
+          <span className="text-amber-500 font-black">{Math.min(Math.round(state.progress), 100)}%</span>
         </div>
-        <div className="h-4 bg-zinc-900 border border-white/5 p-1">
+        <div className="h-4 bg-zinc-900 border border-white/5 p-1 rounded-sm">
           <div 
-            className={`h-full transition-all duration-500 ${isFinished ? 'bg-green-500' : 'bg-amber-500'}`} 
-            style={{ width: `${state.progress}%` }} 
+            className={`h-full transition-all duration-500 ease-out ${isFinished ? 'bg-green-500' : 'bg-amber-500'}`} 
+            style={{ width: `${Math.min(state.progress, 100)}%` }} 
           />
         </div>
-        <h2 className="text-4xl font-black uppercase italic text-white">{category}</h2>
+        <h2 className="text-4xl font-black uppercase italic tracking-tighter text-white">{category}</h2>
       </div>
     </div>
   );
 };
-
 
 const DownloadTask: React.FC<{ category: ModelCategory, onComplete: () => void }> = ({ category, onComplete }) => {
   const { preCache, isCached } = useModelLoader(category);
@@ -185,21 +189,21 @@ const DownloadTask: React.FC<{ category: ModelCategory, onComplete: () => void }
 };
 
 const LandingPage: React.FC<{onStart: ()=>void}> = ({onStart}) => (
-    <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden">
-      <div className="absolute inset-0 bg-[linear-gradient(rgba(245,158,11,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(245,158,11,0.03)_1px,transparent_1px)] bg-[size:40px_40px]" />
-      <div className="relative z-10 text-center space-y-2">
-        <Shield className="text-amber-500 mx-auto mb-4 animate-pulse" size={32} />
-        <h1 className="text-8xl font-black italic tracking-tighter text-white">SATHI<span className="text-amber-500">.AI</span></h1>
-        <button onClick={onStart} className="mt-12 px-12 py-5 bg-amber-500 text-black font-black uppercase text-xs transition-all hover:bg-white">Deploy AI Kernel</button>
-      </div>
+  <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center relative overflow-hidden">
+    <div className="absolute inset-0 bg-[linear-gradient(rgba(245,158,11,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(245,158,11,0.03)_1px,transparent_1px)] bg-[size:40px_40px]" />
+    <div className="relative z-10 text-center space-y-2">
+      <Shield className="text-amber-500 mx-auto mb-4 animate-pulse" size={32} />
+      <h1 className="text-8xl font-black italic tracking-tighter text-white">SATHI<span className="text-amber-500">.AI</span></h1>
+      <button onClick={onStart} className="mt-12 px-12 py-5 bg-amber-500 text-black font-black uppercase text-xs tracking-widest transition-all hover:bg-white hover:text-black">Deploy AI Kernel</button>
     </div>
+  </div>
 );
 
 const TerminalLoading = () => (
-    <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center text-white font-mono p-6">
-      <div className="w-full max-w-md space-y-4">
-        <div className="flex items-center gap-2 text-amber-500 text-[10px] font-black uppercase tracking-widest"><Terminal size={14} className="animate-bounce" /> Hardware Link</div>
-        <div className="h-[1px] w-full bg-zinc-800 relative overflow-hidden"><div className="absolute top-0 h-full bg-amber-500 w-1/3 animate-[loading-shimmer_1.5s_infinite]" /></div>
-      </div>
+  <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center text-white font-mono p-6">
+    <div className="w-full max-w-md space-y-4">
+      <div className="flex items-center gap-2 text-amber-500 text-[10px] font-black uppercase tracking-widest"><Terminal size={14} className="animate-bounce" /> Hardware Link</div>
+      <div className="h-[1px] w-full bg-zinc-800 relative overflow-hidden"><div className="absolute top-0 h-full bg-amber-500 w-1/3 animate-[loading-shimmer_1.5s_infinite]" /></div>
     </div>
+  </div>
 );
