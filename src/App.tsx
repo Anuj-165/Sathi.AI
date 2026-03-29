@@ -12,24 +12,40 @@ import { AppInitializer } from "./components/AppInitializer";
 import MapIt from "./components/MapIt";
 import About from "./components/AboutUs";
 
-import { ONNX } from '@runanywhere/web-onnx';
-import { RunAnywhere,SDKEnvironment } from '@runanywhere/web';
+import { ONNX , STT, STTModelType} from '@runanywhere/web-onnx';
+import { RunAnywhere,SDKEnvironment,ModelCategory,inferModelFromFilename} from '@runanywhere/web';
 
 export type Tab = "home" | "chat"  | "voice" | "map" | "connect" | "about";
 
 
-async function setupSathi() {
-  
-  await RunAnywhere.initialize({
-    environment: SDKEnvironment.Production, // or 'production'
-  });
+async function setupSathiTactical() {
+  try {
+    // 1. Core Boot
+    await RunAnywhere.initialize({
+      environment: SDKEnvironment.Production,
+    });
 
-  
-  await ONNX.register();
+    
+    await ONNX.register();
 
-  console.log("Sathi: ONNX Backend Registered");
+    
+    await STT.loadModel({
+      modelId: 'whisper-tiny',
+      type: STTModelType.Whisper,
+      modelFiles: {
+        encoder: '/models/whisper-tiny-encoder.onnx',
+        decoder: '/models/whisper-tiny-decoder.onnx',
+        tokens: '/models/whisper-tiny-tokens.txt',
+      },
+      sampleRate: 16000,
+      language: 'en',
+    });
+
+    console.log("Sathi: STT Pipeline Ready");
+  } catch (err) {
+    console.error("Sathi Boot Failure:", err);
+  }
 }
-
 
 function MainLayout() {
   const [activeTab, setActiveTab] = useState<Tab>("home");

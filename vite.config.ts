@@ -9,25 +9,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function sathiWasmPlugin(): Plugin {
   const llamacppWasm = path.resolve(__dirname, 'node_modules/@runanywhere/web-llamacpp/wasm');
-
   return {
     name: 'sathi-wasm-orchestrator',
-
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        const url = req.url || '';
-        if (url.includes('racommons-llamacpp')) {
-          const fileName = url.split('/').pop()?.split('?')[0] || '';
-          const filePath = path.join(llamacppWasm, fileName);
-          if (fs.existsSync(filePath)) {
-            res.setHeader('Content-Type', fileName.endsWith('.wasm') ? 'application/wasm' : 'application/javascript');
-            return res.end(fs.readFileSync(filePath));
-          }
-        }
-        next();
-      });
-    },
-
     writeBundle(options) {
       const outDir = options.dir ?? path.resolve(__dirname, 'dist');
       const assetsDir = path.join(outDir, 'assets');
@@ -49,52 +32,35 @@ function sathiWasmPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [
-    tailwindcss(), // 1. Tailwind must be FIRST
-    react(), 
-    sathiWasmPlugin()
-  ],
-
-  server: {
-    headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp', 
-    },
-  },
-
-  assetsInclude: ['**/*.wasm'],
+  // Plugin order is critical for Tailwind v4
+  plugins: [tailwindcss(), react(), sathiWasmPlugin()],
   
-  optimizeDeps: {
-    exclude: ['@runanywhere/web-llamacpp', '@runanywhere/web-onnx'],
-  },
-
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
+  // FIX: Explicitly set CSS strategy
+  css: {
+    transformer: 'postcss', // or 'lightningcss' if you've installed it
   },
 
   build: {
     assetsDir: 'assets',
-    // 2. CSS Code Splitting should be enabled to ensure Tailwind builds its own file
-    cssCodeSplit: true, 
+    cssCodeSplit: false, // Force all Tailwind into one file to prevent loading issues
     rollupOptions: {
       output: {
+        // FIXED: Added explicit dots to extension handling
         assetFileNames: (assetInfo) => {
-          // Keep neural assets unhashed
           if (assetInfo.name?.includes('racommons') || assetInfo.name?.endsWith('.wasm')) {
-            return 'assets/[name][ext]';
+            return 'assets/[name].[ext]'; // Notice the DOT before [ext]
           }
-          // Let Tailwind/CSS have its normal hashed name
-          return 'assets/[name]-[hash][ext]';
+          return 'assets/[name]-[hash].[ext]';
         },
-        chunkFileNames: (chunkInfo) => {
-          if (chunkInfo.name.includes('racommons')) return 'assets/[name].js';
-          return 'assets/[name]-[hash].js';
-        },
-        // 3. Keep entry names standard so Vite connects CSS properly
+        chunkFileNames: 'assets/[name]-[hash].js',
         entryFileNames: 'assets/[name]-[hash].js',
       },
     },
+  },
+  optimizeDeps: {
+    exclude: ['@runanywhere/web-llamacpp', '@runanywhere/web-onnx'],
+  },
+  resolve: {
+    alias: { '@': path.resolve(__dirname, './src') },
   },
 });
