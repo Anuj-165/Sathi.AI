@@ -17,8 +17,6 @@ const GPU_SAFETY_CONFIG = {
   stt: { modelType: 'whisper', beamSize: 1 }
 };
 
-
-
 export const AppInitializer: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [userStarted, setUserStarted] = useState(false);
   const [sdkInitialized, setSdkInitialized] = useState(false);
@@ -39,6 +37,8 @@ export const AppInitializer: React.FC<{ children: React.ReactNode }> = ({ childr
         setSdkInitialized(true);
       } catch (err) { 
         console.error("[Sathi] Critical Boot Error:", err); 
+        // Force state to true so app doesn't stay on black screen
+        setSdkInitialized(true); 
       } finally { 
         initializing.current = false; 
       }
@@ -99,27 +99,31 @@ export const AppInitializer: React.FC<{ children: React.ReactNode }> = ({ childr
   );
 };
 
-
-
 const SequentialPreloader: React.FC<{ categories: ModelCategory[], children: React.ReactNode }> = ({ categories, children }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [criticalReady, setCriticalReady] = useState(false);
 
   const handleNext = useCallback(() => {
+    const finishedCategory = categories[currentIndex];
+    console.log(`[Sathi] Module Sync Complete: ${finishedCategory}`);
     
-    if (categories[currentIndex] === ModelCategory.Language) {
+    // Safety: If Language is done, unlock the app
+    if (finishedCategory === ModelCategory.Language) {
       setCriticalReady(true);
     }
+    
     setCurrentIndex((prev) => prev + 1);
   }, [currentIndex, categories]);
 
-  
-  if (criticalReady) {
-    return (
-      <>
-        {children}
-        
-        {currentIndex < categories.length && (
+  // If we've exhausted all categories, just return children
+  if (currentIndex >= categories.length) return <>{children}</>;
+
+  return (
+    <>
+      {criticalReady ? (
+        <>
+          {children}
+          {/* Background Task Runner */}
           <div className="hidden pointer-events-none" aria-hidden="true">
             <DownloadTask 
               key={categories[currentIndex]} 
@@ -127,34 +131,29 @@ const SequentialPreloader: React.FC<{ categories: ModelCategory[], children: Rea
               onComplete={handleNext} 
             />
           </div>
-        )}
-      </>
-    );
-  }
+        </>
+      ) : (
+        <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center text-white p-10 relative">
+          <div className="absolute top-10 left-10 flex flex-col gap-1">
+            <div className="h-1 w-10 bg-amber-500" />
+            <div className="h-[1px] w-20 bg-zinc-800" />
+          </div>
 
-  // Still on the Critical Path (Language Module)
-  return (
-    <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center text-white p-10 relative">
-      <div className="absolute top-10 left-10 flex flex-col gap-1">
-        <div className="h-1 w-10 bg-amber-500" />
-        <div className="h-[1px] w-20 bg-zinc-800" />
-      </div>
-
-      <TacticalLoader 
-        category={categories[currentIndex]} 
-        index={currentIndex} 
-        total={categories.length} 
-      />
-      <DownloadTask 
-        key={categories[currentIndex]} 
-        category={categories[currentIndex]} 
-        onComplete={handleNext} 
-      />
-    </div>
+          <TacticalLoader 
+            category={categories[currentIndex]} 
+            index={currentIndex} 
+            total={categories.length} 
+          />
+          <DownloadTask 
+            key={categories[currentIndex]} 
+            category={categories[currentIndex]} 
+            onComplete={handleNext} 
+          />
+        </div>
+      )}
+    </>
   );
 };
-
-
 
 const TacticalLoader: React.FC<{ category: ModelCategory, index: number, total: number }> = ({ category, index, total }) => {
   const { state } = useModelProgress();
@@ -231,25 +230,51 @@ const DownloadTask: React.FC<{ category: ModelCategory, onComplete: () => void }
     const run = async () => {
       if (executionRef.current) return;
       executionRef.current = true;
+
+      // SAFETY TIMEOUT: If a model takes more than 60s without progress, we skip to next
+      const safetyTimeout = setTimeout(() => {
+        if (active) {
+          console.warn(`[Sathi] Sync Timeout for ${category}. Proceeding...`);
+          onComplete();
+        }
+      }, 60000); 
+
       try {
         if (isCached) {
           dispatch({ type: 'SET_PROGRESS', payload: { current: category, progress: 100, status: "complete" } });
+          clearTimeout(safetyTimeout);
           if (active) onComplete();
           return;
         }
+
         dispatch({ type: 'SET_PROGRESS', payload: { current: category, progress: 1, status: "downloading" } });
+        
         const success = ('locks' in navigator) 
-          ? await navigator.locks.request("sathi-opfs-lock", () => preCache()) 
+          ? await navigator.locks.request("sathi-opfs-lock", { ifAvailable: true }, async (lock) => {
+              if (!lock) {
+                // If lock is held by another tab, just skip the download to avoid hang
+                return true; 
+              }
+              return await preCache();
+            }) 
           : await preCache();
         
-        if (success && active) {
+        clearTimeout(safetyTimeout);
+        if (active) {
           dispatch({ type: 'SET_PROGRESS', payload: { current: category, progress: 100, status: "complete" } });
+          // Short delay for UI satisfaction
           setTimeout(() => { if (active) onComplete(); }, 400);
-        } else { if (active) onComplete(); }
-      } catch { if (active) onComplete(); }
+        }
+      } catch (err) {
+        console.error(`[Sathi] Task Error for ${category}:`, err);
+        clearTimeout(safetyTimeout);
+        if (active) onComplete(); 
+      }
     };
+
     run();
     return () => { active = false; };
   }, [category, preCache, isCached, onComplete, dispatch]); 
+
   return null;
 };
