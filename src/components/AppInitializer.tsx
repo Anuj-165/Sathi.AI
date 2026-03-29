@@ -14,10 +14,10 @@ const ALL_CATEGORIES = [
 declare global {
   interface Window {
     sathiSDK: any;
+    racSDK: any;
   }
 }
 
-// Helper to ensure browser doesn't purge the models from OPFS
 const requestPersistence = async () => {
   if (navigator.storage && navigator.storage.persist) {
     return await navigator.storage.persist();
@@ -43,13 +43,27 @@ export const AppInitializer: React.FC<{ children: React.ReactNode }> = ({ childr
     
     const boot = async () => {
       try {
-        const instance = await initSDK(GPU_SAFETY_CONFIG as any) as any;
-        if (instance !== undefined && instance !== null) {
-          window.sathiSDK = instance;
-          setSdkInitialized(true);
+        console.log("[Sathi] Initiating Hardware Link...");
+        const instance = await (initSDK(GPU_SAFETY_CONFIG as any) as any);
+        const validInstance = instance || window.racSDK || (window as any).sathiSDK;
+        
+        if (validInstance) {
+          window.sathiSDK = validInstance;
+          console.log("[Sathi] SDK Instance linked successfully.");
         }
+
+        if (window.sathiSDK?.stt?.ensureLoaded) {
+          window.sathiSDK.stt.ensureLoaded().catch((e: any) => 
+            console.warn("[Sathi] STT Warmup deferred to background:", e)
+          );
+        }
+
+        console.log("[Sathi] Tactical SDK Ready. Advancing to Preloader.");
+        setSdkInitialized(true);
+        
       } catch (err) {
         console.error("[Sathi] SDK Boot Failure:", err);
+        setSdkInitialized(true); 
       } finally { 
         initializing.current = false; 
       }
@@ -78,7 +92,6 @@ const UnifiedPreloader: React.FC<{ onLaunch: () => void, isLaunched: boolean, ch
 
   const handleTaskComplete = useCallback(() => {
     const completed = queue.current.shift();
-    
     if (completed === ModelCategory.Language) {
       setKernelReady(true);
     }
@@ -93,7 +106,6 @@ const UnifiedPreloader: React.FC<{ onLaunch: () => void, isLaunched: boolean, ch
 
   return (
     <>
-      
       {!allDone && activeCategory && (
         <div className="hidden pointer-events-none" aria-hidden="true">
           <DownloadTask 
@@ -104,7 +116,6 @@ const UnifiedPreloader: React.FC<{ onLaunch: () => void, isLaunched: boolean, ch
         </div>
       )}
 
-      
       {!allDone && isLaunched && (
         <div className="fixed bottom-6 right-6 z-[100] bg-zinc-900/95 backdrop-blur-md border border-amber-500/30 p-4 rounded-lg shadow-2xl animate-in slide-in-from-right-10">
           <div className="flex items-center gap-3">
@@ -197,13 +208,11 @@ const DownloadTask: React.FC<{ category: ModelCategory, onComplete: () => void }
   useEffect(() => {
     let active = true;
     const run = async () => {
-      
       if (executionRef.current === category) return;
       executionRef.current = category;
 
       try {
         await requestPersistence();
-
         if (isCached) {
           dispatch({ type: 'SET_PROGRESS', payload: { current: category, progress: 100, status: "complete" } });
           if (active) onComplete();
@@ -211,7 +220,6 @@ const DownloadTask: React.FC<{ category: ModelCategory, onComplete: () => void }
         }
 
         dispatch({ type: 'SET_PROGRESS', payload: { current: category, progress: 1, status: "downloading" } });
-        
         await navigator.locks.request("sathi-opfs-lock", { ifAvailable: true }, async () => {
           return await preCache();
         });
