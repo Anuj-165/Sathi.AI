@@ -1,16 +1,12 @@
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import tailwindcss from '@tailwindcss/vite'; // <--- Tailwind v4 Plugin
+import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/**
- * Tactical WASM Plugin: Handles LlamaCpp assets.
- * Sherpa-ONNX is handled via manual placement in the /public folder.
- */
 function sathiWasmPlugin(): Plugin {
   const llamacppWasm = path.resolve(__dirname, 'node_modules/@runanywhere/web-llamacpp/wasm');
 
@@ -54,43 +50,50 @@ function sathiWasmPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [
-    tailwindcss(), // <--- Must be BEFORE react() for best compatibility in v4
+    tailwindcss(), // 1. Tailwind must be FIRST
     react(), 
     sathiWasmPlugin()
   ],
+
   server: {
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp', 
     },
   },
-  preview: {
-    headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp', 
-    },
-  },
+
   assetsInclude: ['**/*.wasm'],
-  worker: { 
-    format: 'es' 
-  },
+  
   optimizeDeps: {
     exclude: ['@runanywhere/web-llamacpp', '@runanywhere/web-onnx'],
   },
+
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
   },
+
   build: {
+    assetsDir: 'assets',
+    // 2. CSS Code Splitting should be enabled to ensure Tailwind builds its own file
+    cssCodeSplit: true, 
     rollupOptions: {
       output: {
         assetFileNames: (assetInfo) => {
-          if (assetInfo.name?.endsWith('.wasm')) {
+          // Keep neural assets unhashed
+          if (assetInfo.name?.includes('racommons') || assetInfo.name?.endsWith('.wasm')) {
             return 'assets/[name][ext]';
           }
+          // Let Tailwind/CSS have its normal hashed name
           return 'assets/[name]-[hash][ext]';
         },
+        chunkFileNames: (chunkInfo) => {
+          if (chunkInfo.name.includes('racommons')) return 'assets/[name].js';
+          return 'assets/[name]-[hash].js';
+        },
+        // 3. Keep entry names standard so Vite connects CSS properly
+        entryFileNames: 'assets/[name]-[hash].js',
       },
     },
   },

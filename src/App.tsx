@@ -12,8 +12,23 @@ import { AppInitializer } from "./components/AppInitializer";
 import MapIt from "./components/MapIt";
 import About from "./components/AboutUs";
 
+import { ONNX } from '@runanywhere/web-onnx';
+import { RunAnywhere,SDKEnvironment } from '@runanywhere/web';
 
 export type Tab = "home" | "chat"  | "voice" | "map" | "connect" | "about";
+
+
+async function setupSathi() {
+  
+  await RunAnywhere.initialize({
+    environment: SDKEnvironment.Production, // or 'production'
+  });
+
+  
+  await ONNX.register();
+
+  console.log("Sathi: ONNX Backend Registered");
+}
 
 
 function MainLayout() {
