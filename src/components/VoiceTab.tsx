@@ -113,51 +113,78 @@ export function VoiceTab({ autoStart }: VoiceTabProps) {
 };
 
   const stopListening = async () => {
-    if (!micRef.current || !pipelineRef.current) return;
-    setVoiceState("processing");
-    await micRef.current.stop();
+  // 1. Initial State & Hardware Safety Checks
+  if (!micRef.current || !pipelineRef.current || voiceState !== "listening") return;
+  
+  setVoiceState("processing");
+
+  try {
     
+    const sdk = window.sathiSDK;
+    if (sdk?.stt) {
+      console.log("[Sathi] Ensuring STT WASM is synchronized...");
+      await sdk.stt.ensureLoaded();
+    }
+
+    
+    await micRef.current.stop();
+
     const totalLength = audioBufferRef.current.reduce((acc, c) => acc + c.length, 0);
+    if (totalLength === 0) {
+      console.warn("[Sathi] No audio captured.");
+      setVoiceState("idle");
+      return;
+    }
+
     const samples = new Float32Array(totalLength);
     let offset = 0;
-    audioBufferRef.current.forEach(c => { samples.set(c, offset); offset += c.length; });
+    audioBufferRef.current.forEach(c => {
+      samples.set(c, offset);
+      offset += c.length;
+    });
 
-    try {
-      const options = {
-        sampleRate: 16000,
-        enableLLM: true,
-        enableTTS: true,
-        maxTokens: 100,
-        systemPrompt: "You are SATHI Tactical AI. Provide 3 long ,precise and  high-impact safety actions. DO NOT use asterisks (*) for any reason. Every word in your response must be in UPPERCASE. Be brief.",
-      };
+    
+    const options = {
+      sampleRate: 16000,
+      enableLLM: true,
+      enableTTS: true,
+      maxTokens: 100,
+      systemPrompt: "YOU ARE SATHI TACTICAL AI. PROVIDE 3 LONG, PRECISE, AND HIGH-IMPACT SAFETY ACTIONS. DO NOT USE ASTERISKS (*) FOR ANY REASON. EVERY WORD IN YOUR RESPONSE MUST BE IN UPPERCASE. BE BRIEF.",
+    };
 
-      await pipelineRef.current.processTurn(
-        samples, 
-        options as any, 
-        {
-          onTranscription: (text: string) => {
-            if (text.trim()) {
-              setTranscript(text);
-              if (["emergency", "help", "sos", "bachao", "fall","fell","following"].some(k => text.toLowerCase().includes(k))) {
-                triggerSOS();
-              }
+    await pipelineRef.current.processTurn(
+      samples,
+      options as any,
+      {
+        onTranscription: (text: string) => {
+          const cleanText = text.trim();
+          if (cleanText) {
+            setTranscript(cleanText);
+            // Enhanced keyword detection for high-stakes triggers
+            const keywords = ["emergency", "help", "sos", "bachao", "fall", "fell", "fire", "accident"];
+            if (keywords.some(k => cleanText.toLowerCase().includes(k))) {
+              triggerSOS();
             }
-          },
-          onResponseToken: (token: string) => {
+          }
+        },
+        onResponseToken: (token: string) => {
+          setResponse((prev) => prev + token);
+        },
+        onSynthesisComplete: (audio: Float32Array, sr: number) => {
+          setVoiceState("speaking");
+          playerRef.current?.play(audio, sr).then(() => {
+            setVoiceState("idle");
             
-            setResponse((prev) => prev + token);
-          },
-          onSynthesisComplete: (audio: Float32Array, sr: number) => {
-            setVoiceState("speaking");
-            playerRef.current?.play(audio, sr).then(() => setVoiceState("idle"));
-          },
-        } as any
-      );
-    } catch (e) {
-      console.error("Pipeline Error:", e);
-      setVoiceState("idle");
-    }
-  };
+            audioBufferRef.current = [];
+          });
+        },
+      } as any
+    );
+  } catch (e) {
+    console.error("[Sathi] Tactical Pipeline Critical Failure:", e);
+    setVoiceState("idle");
+  }
+};
 
   return (
     <div className={`flex flex-col h-screen p-6 transition-all duration-700 relative ${isSOS ? "bg-red-950" : "bg-black"} text-white font-mono overflow-hidden`}>
