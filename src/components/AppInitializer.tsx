@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { initSDK, ModelCategory } from '../runanywhere'; 
 import { useModelLoader } from '../hooks/useModelLoader';
 import { ModelProgressProvider, useModelProgress } from "./ModelProgressContext";
-import { Shield, Zap, Terminal, Cpu, CheckCircle, AlertTriangle, Bell } from 'lucide-react';
+import { Shield, Terminal, Cpu, CheckCircle, AlertTriangle, Bell } from 'lucide-react';
 
 const ALL_CATEGORIES = [
   ModelCategory.Language,
@@ -42,11 +42,13 @@ export const AppInitializer: React.FC<{ children: React.ReactNode }> = ({ childr
     
     const boot = async () => {
       try {
+        console.log("[Sathi] Initiating Hardware Link...");
         
+        // Use 'as any' to bypass 'void' return type in library definition
         const instance = await initSDK(GPU_SAFETY_CONFIG as any) as any;
         
-        if (instance) {
-          
+        // Explicit check avoids the "void truthiness" TS error
+        if (instance !== undefined && instance !== null) {
           window.sathiSDK = instance;
 
           if (instance.stt) {
@@ -55,6 +57,10 @@ export const AppInitializer: React.FC<{ children: React.ReactNode }> = ({ childr
               console.error("[Sathi] STT Warmup Failed:", err)
             );
           }
+          setSdkInitialized(true);
+          console.log("[Sathi] Hardware Link Established.");
+        } else {
+          // Fallback if the SDK initializes a singleton internally but returns void
           setSdkInitialized(true);
         }
       } catch (err) {
@@ -127,7 +133,7 @@ const UnifiedPreloader: React.FC<{ onLaunch: () => void, isLaunched: boolean, ch
 
       {!isLaunched ? (
         <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-10">
-          <TacticalLoader category={ModelCategory.Language} />
+          <TacticalLoader category={activeCategory || ModelCategory.Language} />
           
           {(kernelReady || state.progress >= 99) && (
             <div className="mt-12 space-y-6 flex flex-col items-center animate-in fade-in slide-in-from-bottom-4 duration-1000">
@@ -201,7 +207,7 @@ const DownloadTask: React.FC<{ category: ModelCategory, onComplete: () => void }
 
         dispatch({ type: 'SET_PROGRESS', payload: { current: category, progress: 1, status: "downloading" } });
         
-        await navigator.locks.request("sathi-opfs-lock", { ifAvailable: true }, async (lock) => {
+        await navigator.locks.request("sathi-opfs-lock", { ifAvailable: true }, async () => {
           return await preCache();
         });
 
@@ -235,7 +241,9 @@ const TerminalLoading = () => (
   <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center text-white font-mono p-6">
     <div className="w-full max-w-md space-y-4">
       <div className="flex items-center gap-2 text-amber-500 text-[10px] font-black uppercase tracking-widest"><Terminal size={14} className="animate-bounce" /> Hardware Link</div>
-      <div className="h-[1px] w-full bg-zinc-800 relative overflow-hidden"><div className="absolute top-0 h-full bg-amber-500 w-1/3 animate-[loading-shimmer_1.5s_infinite]" /></div>
+      <div className="h-[1px] w-full bg-zinc-800 relative overflow-hidden">
+        <div className="absolute top-0 h-full bg-amber-500 w-1/3 animate-[loading-shimmer_1.5s_infinite]" />
+      </div>
     </div>
   </div>
 );
